@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zebra Config</title>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b5cab'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Zebra Config</h1>
+      <p class="lede">Setup and troubleshooting for Zebra ZD410 and ZD411 printers at 203 dpi.</p>
+    </div>
+    <p class="version" id="version"></p>
+  </header>
+
+  <section class="card connect-card" aria-labelledby="connect-heading">
+    <h2 id="connect-heading">Connect</h2>
+    <form id="connect-form">
+      <label class="field grow">
+        <span>Printer IP address</span>
+        <input id="ip-input" name="ip" autocomplete="off" spellcheck="false" placeholder="192.168.1.50" required>
+        <small>Type the printer's IPv4 address. This tool does not search the network.</small>
+      </label>
+      <label class="field port">
+        <span>Port</span>
+        <input id="port-input" name="port" inputmode="numeric" value="9100">
+        <small>Usually 9100.</small>
+      </label>
+      <button type="submit" id="connect-btn">Connect</button>
+    </form>
+    <div id="recent" class="recent"></div>
+  </section>
+
+  <div id="banner" class="banner" role="alert" hidden></div>
+
+  <main id="main" hidden>
+    <section class="card status-card">
+      <div>
+        <h2 id="status-title">Printer</h2>
+        <p id="status-line"></p>
+      </div>
+      <button type="button" id="disconnect-btn" class="ghost">Disconnect</button>
+    </section>
+
+    <div class="toolbar">
+      <button type="button" id="review-btn">Review changes</button>
+      <button type="button" id="refresh-btn" class="ghost">Refresh from printer</button>
+      <button type="button" id="export-btn" class="ghost">Export</button>
+      <label class="import">
+        <span>Import</span>
+        <input id="import-file" type="file" accept="application/json,.json">
+      </label>
+      <label class="check" id="import-net-label">
+        <input id="import-network" type="checkbox">
+        <span>Include network settings on import</span>
+      </label>
+    </div>
+    <p class="help" id="import-help">Export saves settings plus the model and firmware. Import leaves IP, mask, gateway, port, and addressing out unless the box is checked.</p>
+
+    <div id="sections" class="sections"></div>
+
+    <section class="card" aria-labelledby="fixes-heading">
+      <h2 id="fixes-heading">One-click fixes</h2>
+      <p class="help">Calibrate feeds a few labels and measures them. The configuration label prints the printer's settings, not your label designs.</p>
+      <div class="button-row">
+        <button type="button" data-action="calibrate">Calibrate media</button>
+        <button type="button" data-action="config_label">Print configuration label</button>
+        <button type="button" data-action="recall">Reset to last saved settings</button>
+      </div>
+      <h3 class="danger-title">Restart and factory reset</h3>
+      <p class="help">These can take the printer off the network or wipe settings. Each one asks again before it sends anything.</p>
+      <div class="button-row">
+        <button type="button" class="danger" data-action="restart">Restart printer</button>
+        <button type="button" class="danger" data-action="factory">Reset printer settings to factory</button>
+        <button type="button" class="danger" data-action="network_defaults">Reset network settings to factory</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="console-heading">
+      <h2 id="console-heading">Command console</h2>
+      <p class="help">Send one SGD or ZPL status command. Commands that read stored labels, graphics, or the file list are blocked. Nothing typed here is saved.</p>
+      <label class="field">
+        <span>Command</span>
+        <input id="console-command" spellcheck="false" autocomplete="off" placeholder='! U1 getvar "appl.name"'>
+      </label>
+      <div class="button-row">
+        <button type="button" id="console-send">Send</button>
+      </div>
+      <pre id="console-output" class="console">Response will show here.</pre>
+    </section>
+  </main>
+
+  <footer>
+    <p>Zebra Config talks only to the printer IP you type. It does not scan the network, phone home, or read label designs.</p>
+  </footer>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h2 id="modal-title">Review changes</h2>
+      <div id="modal-body"></div>
+      <p id="modal-warning" class="warn-text" hidden></p>
+      <label id="modal-extra" class="check" hidden>
+        <input id="modal-check" type="checkbox">
+        <span id="modal-check-label"></span>
+      </label>
+      <label id="modal-save" class="check" hidden>
+        <input id="modal-save-check" type="checkbox">
+        <span>Save on the printer so these settings are more likely to survive a restart</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" id="modal-cancel" class="ghost">Cancel</button>
+        <button type="button" id="modal-confirm">Confirm and send</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
