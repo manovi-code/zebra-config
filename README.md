@@ -18,13 +18,21 @@ The program does not need administrator rights.
 
 ## Download and run on macOS
 
-1. Download `zebra-config-macos-apple-silicon` for an M1/M2/M3/M4 Mac, or `zebra-config-macos-intel` for an Intel Mac. `zebra-config-macos-universal` runs on either.
-2. macOS Gatekeeper blocks an unsigned program the first time. Use one of these:
-   - Right-click the file, choose **Open**, then **Open** again.
-   - Or go to **System Settings > Privacy & Security**, find the blocked item, and choose **Open Anyway**.
-   - Or, in Terminal, from the folder that contains the file: `xattr -d com.apple.quarantine zebra-config-macos-apple-silicon` (use the name of the file you downloaded).
-3. Double-click it, or in Terminal run `./zebra-config-macos-apple-silicon`. A terminal window stays open. Closing it quits the tool.
-4. The browser should open on its own. If it does not, use the `http://127.0.0.1:` address printed in the terminal.
+1. On the [releases page](https://github.com/manovi-code/zebra-config/releases), download `Zebra-Config-macOS.zip`. This is the file to double-click. It works on both Intel and Apple silicon Macs.
+2. Double-click the zip. macOS opens it into an app named **Zebra Config**.
+3. The first time, Gatekeeper blocks an app that was downloaded. Right-click **Zebra Config**, choose **Open**, then **Open** again. On newer macOS, if that choice is missing: **System Settings > Privacy & Security**, find the blocked app, and choose **Open Anyway**.
+4. A browser page opens at `http://127.0.0.1:`. No installer and no administrator password.
+5. When you are finished, click **Quit** on that page. That stops the program. Closing the browser tab does not stop it. The app does not stay in the Dock. If the page is already closed, open Activity Monitor, select **Zebra Config**, and quit it.
+
+If double-click still does nothing, open Terminal, `cd` to the folder that contains the app, and run:
+
+```
+xattr -d com.apple.quarantine "Zebra Config.app"
+chmod +x "Zebra Config.app/Contents/MacOS/zebra-config"
+open "Zebra Config.app"
+```
+
+The same release also has raw programs for people who want a terminal: `zebra-config-macos-apple-silicon`, `zebra-config-macos-intel`, and `zebra-config-macos-universal`. Those are not the double-click download. For one of them, run `chmod +x` and `xattr -d com.apple.quarantine` on the file name, then start it with `./`. A terminal window stays open. Closing that window quits the tool.
 
 ## Use the page
 
@@ -37,6 +45,8 @@ IP address, subnet mask, gateway, port, and addressing method need a second conf
 **Export** downloads a JSON file of the settings plus the model, firmware, and resolution. It does not include label designs.
 
 Recent printers are remembered on this computer as an IP, a name, and a model. That list is the only thing the tool stores.
+
+**Quit** stops Zebra Config. On Windows, closing the program window also stops it. Closing the browser tab does not.
 
 ## Run the simulator
 
@@ -110,4 +120,4 @@ go build -o zebra-config ./cmd/zebra-config
 go build -o zdsim ./cmd/zdsim
 ```
 
-A tag named `v*` builds the Windows and macOS binaries and publishes them as a GitHub release. See `.github/workflows/ci.yml`.
+A tag named `v*` builds the Windows binary, the raw Mac binaries, `Zebra-Config-macOS.zip` (a double-click app), and a Linux binary, then publishes them as a GitHub release. The Mac app is packed on a Mac so the program inside stays executable. See `.github/workflows/ci.yml`.

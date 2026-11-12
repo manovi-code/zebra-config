@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +59,7 @@ func New(recentPath string, t printer.Timeouts) (*Server, error) {
 	mux.HandleFunc("GET /api/bootstrap", s.handleBootstrap)
 	mux.HandleFunc("POST /api/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/disconnect", s.handleDisconnect)
+	mux.HandleFunc("POST /api/quit", s.handleQuit)
 	mux.HandleFunc("POST /api/preview", s.handlePreview)
 	mux.HandleFunc("POST /api/apply", s.handleApply)
 	mux.HandleFunc("POST /api/action", s.handleAction)
@@ -99,18 +101,41 @@ func (s *Server) Serve() error {
 	return err
 }
 
-// Close stops the UI and the printer session.
+// Close stops the UI and the printer session immediately.
 func (s *Server) Close() error {
-	s.mu.Lock()
-	if s.sess != nil && s.sess.client != nil {
-		_ = s.sess.client.Close()
-		s.sess = nil
-	}
-	s.mu.Unlock()
+	s.closePrinter()
 	if s.http != nil {
 		_ = s.http.Close()
 	}
 	return nil
+}
+
+// Shutdown closes the printer connection, then stops the page once the
+// current request has been answered. Quit and a process signal use this.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.closePrinter()
+	if s.http == nil {
+		return nil
+	}
+	return s.http.Shutdown(ctx)
+}
+
+func (s *Server) closePrinter() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sess != nil && s.sess.client != nil {
+		_ = s.sess.client.Close()
+		s.sess = nil
+	}
+}
+
+func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	}()
 }
 
 func (s *Server) serveFile(name, contentType string) http.HandlerFunc {

@@ -508,6 +508,24 @@ $("connect-form").addEventListener("submit", (ev) => {
   connectPrinter($("ip-input").value.trim(), $("port-input").value.trim() || "9100");
 });
 
+$("quit-btn").addEventListener("click", async () => {
+  if (!window.confirm("Quit Zebra Config? This page will stop. The printer is not changed.")) {
+    return;
+  }
+  $("quit-btn").disabled = true;
+  const res = await jsonPost("/api/quit", {});
+  if (res.status !== 0 && !res.body.ok) {
+    $("quit-btn").disabled = false;
+    showBanner("error", res.body.error || "Could not quit.");
+    return;
+  }
+  showBanner("ok", "Zebra Config has stopped. You can close this tab.");
+  $("connect-btn").disabled = true;
+  $("connect-form").querySelectorAll("input, button").forEach((el) => {
+    el.disabled = true;
+  });
+});
+
 $("disconnect-btn").addEventListener("click", async () => {
   await jsonPost("/api/disconnect", {});
   session = null;

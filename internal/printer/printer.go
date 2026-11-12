@@ -15,7 +15,9 @@ import (
 // ErrBadResponse means the printer answered, but not with a model.
 var ErrBadResponse = errors.New("bad response")
 
-const Version = "0.1.0"
+// Version is shown on the page. Release builds replace it with the tag
+// (for example 0.1.1) using -X.
+var Version = "0.1.1"
 
 // Identity names are read on every connect and are not editable.
 var identityNames = []string{

@@ -13,7 +13,10 @@
       <h1>Zebra Config</h1>
       <p class="lede">Setup and troubleshooting for Zebra ZD410 and ZD411 printers at 203 dpi.</p>
     </div>
-    <p class="version" id="version"></p>
+    <div class="top-actions">
+      <p class="version" id="version"></p>
+      <button type="button" id="quit-btn" class="ghost">Quit</button>
+    </div>
   </header>
 
   <section class="card connect-card" aria-labelledby="connect-heading">
@@ -94,7 +97,7 @@
   </main>
 
   <footer>
-    <p>Zebra Config talks only to the printer IP you type. It does not scan the network, phone home, or read label designs.</p>
+    <p>Zebra Config talks only to the printer IP you type. It does not scan the network, phone home, or read label designs. Click Quit to stop it. Closing this tab leaves it running.</p>
   </footer>
 
   <div id="modal" class="modal" hidden>
