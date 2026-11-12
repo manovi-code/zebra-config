@@ -60,6 +60,25 @@ func postJSON(t *testing.T, url string, body any) (int, map[string]any) {
 	return res.StatusCode, out
 }
 
+func TestQuitStopsTheServer(t *testing.T) {
+	base := startUI(t, printer.Timeouts{})
+	status, out := postJSON(t, base+"/api/quit", map[string]any{})
+	if status != 200 || out["ok"] != true {
+		t.Fatalf("quit %d %+v", status, out)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	client := &http.Client{Timeout: 200 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		res, err := client.Get(base + "/")
+		if err != nil {
+			return
+		}
+		res.Body.Close()
+		time.Sleep(30 * time.Millisecond)
+	}
+	t.Fatal("the page was still up after Quit")
+}
+
 func TestPageAndErrors(t *testing.T) {
 	base := startUI(t, printer.Timeouts{})
 	res, err := http.Get(base + "/")
@@ -68,7 +87,7 @@ func TestPageAndErrors(t *testing.T) {
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != 200 || !strings.Contains(string(body), "Zebra Config") {
+	if res.StatusCode != 200 || !strings.Contains(string(body), "Zebra Config") || !strings.Contains(string(body), `id="quit-btn"`) {
 		t.Fatalf("index %d %s", res.StatusCode, body)
 	}
 	for _, path := range []string{"/app.css", "/app.js"} {

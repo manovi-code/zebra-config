@@ -25,15 +25,24 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-      - name: Build a universal Mac binary
+      - name: Build a universal Mac app
         run: |
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o /tmp/zebra-config-intel ./cmd/zebra-config
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o /tmp/zebra-config-arm64 ./cmd/zebra-config
-          lipo -create -output zebra-config-macos-universal /tmp/zebra-config-intel /tmp/zebra-config-arm64
+          version="${GITHUB_REF_NAME#v}"
+          ldflags="-s -w -X github.com/manovi-code/zebra-config/internal/printer.Version=${version}"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o /tmp/zebra-config-intel ./cmd/zebra-config
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$ldflags" -o /tmp/zebra-config-arm64 ./cmd/zebra-config
+          mkdir -p dist
+          lipo -create -output dist/zebra-config-macos-universal /tmp/zebra-config-intel /tmp/zebra-config-arm64
+          bash packaging/macos/build-app.sh dist/zebra-config-macos-universal "$version" dist
+          mkdir -p "$RUNNER_TEMP/mac-artifacts"
+          cp dist/zebra-config-macos-universal "$RUNNER_TEMP/mac-artifacts/"
+          cp dist/Zebra-Config-macOS.zip "$RUNNER_TEMP/mac-artifacts/"
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-universal
-          path: zebra-config-macos-universal
+          name: macos-bundle
+          path: |
+            ${{ runner.temp }}/mac-artifacts/zebra-config-macos-universal
+            ${{ runner.temp }}/mac-artifacts/Zebra-Config-macOS.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -48,14 +57,16 @@ jobs:
           go-version: "1.22"
       - name: Build release binaries
         run: |
+          version="${GITHUB_REF_NAME#v}"
+          ldflags="-s -w -X github.com/manovi-code/zebra-config/internal/printer.Version=${version}"
           mkdir -p dist
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/zebra-config-windows-amd64.exe ./cmd/zebra-config
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/zebra-config-macos-intel ./cmd/zebra-config
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/zebra-config-macos-apple-silicon ./cmd/zebra-config
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/zebra-config-linux-amd64 ./cmd/zebra-config
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o dist/zebra-config-windows-amd64.exe ./cmd/zebra-config
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o dist/zebra-config-macos-intel ./cmd/zebra-config
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$ldflags" -o dist/zebra-config-macos-apple-silicon ./cmd/zebra-config
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o dist/zebra-config-linux-amd64 ./cmd/zebra-config
       - uses: actions/download-artifact@v4
         with:
-          name: macos-universal
+          name: macos-bundle
           path: dist
       - name: Checksums
         working-directory: dist

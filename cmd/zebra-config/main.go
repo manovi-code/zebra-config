@@ -5,12 +5,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"log"
+	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/manovi-code/zebra-config/internal/httpserver"
 	"github.com/manovi-code/zebra-config/internal/printer"
@@ -28,24 +32,44 @@ func main() {
 	}
 	srv, err := httpserver.New(recentPath, printer.DefaultTimeouts())
 	if err != nil {
-		log.Fatal(err)
+		fail(err)
 	}
 	addr, err := listen(srv, *port)
 	if err != nil {
-		log.Fatal(err)
+		fail(err)
 	}
 	url := "http://" + addr + "/"
 	fmt.Println("Zebra Config is running at", url)
-	fmt.Println("Close this window to quit.")
+	fmt.Println("Click Quit on the page to stop.")
+	fmt.Println("Closing the browser tab does not stop it. On Windows, closing this window also stops it.")
 	fmt.Println("This program only listens on this computer. It does not scan the network.")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		shut, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shut)
+	}()
+
 	if !*noBrowser {
 		if err := openBrowser(url); err != nil {
 			fmt.Println("Open that address in a browser. The browser did not open on its own.")
 		}
 	}
 	if err := srv.Serve(); err != nil {
-		log.Fatal(err)
+		fail(err)
 	}
+}
+
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	if runtime.GOOS == "darwin" {
+		msg := err.Error()
+		_ = exec.Command("osascript", "-e", fmt.Sprintf("display alert \"Zebra Config could not start\" message %q", msg)).Run()
+	}
+	os.Exit(1)
 }
 
 func listen(srv *httpserver.Server, port int) (string, error) {

@@ -50,6 +50,7 @@ h3 { font-size: 16px; margin: 16px 0 8px; }
 .lede, .help, small, footer, .version { color: var(--muted); }
 .lede { margin: 4px 0 0; }
 .version { margin: 0; font-size: 14px; }
+.top-actions { display: flex; align-items: center; gap: 12px; }
 .help, small { display: block; margin: 4px 0 0; font-size: 13px; }
 
 .card {
