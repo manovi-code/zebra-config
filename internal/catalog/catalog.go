@@ -30,6 +30,7 @@ const (
 	KindNumber Kind = "number"
 	KindText   Kind = "text"
 	KindIP     Kind = "ip"
+	KindCheck  Kind = "check"
 )
 
 // Option is one dropdown entry. Value is what getvar returns (or the canonical
@@ -41,17 +42,21 @@ type Option struct {
 
 // Setting describes one allowlisted SGD variable.
 type Setting struct {
-	ID       string
-	Label    string
-	Section  string
-	Help     string
-	Kind     Kind
-	Options  []Option
-	Min      float64
-	Max      float64
-	Decimals int
-	Network  bool
-	Step     string
+	ID             string
+	Label          string
+	Section        string
+	Help           string
+	Kind           Kind
+	Options        []Option
+	Min            float64
+	Max            float64
+	Decimals       int
+	Network        bool
+	Step           string
+	MaxLen         int
+	ReadOnly       bool
+	CheckedValue   string
+	UncheckedValue string
 }
 
 // Change is a proposed new value from the screen or an import file.
@@ -73,16 +78,20 @@ type Row struct {
 
 // FieldView is one editable control.
 type FieldView struct {
-	ID      string   `json:"id"`
-	Label   string   `json:"label"`
-	Kind    Kind     `json:"kind"`
-	Value   string   `json:"value"`
-	Help    string   `json:"help"`
-	Options []Option `json:"options,omitempty"`
-	Min     float64  `json:"min"`
-	Max     float64  `json:"max"`
-	Step    string   `json:"step,omitempty"`
-	Network bool     `json:"network"`
+	ID             string   `json:"id"`
+	Label          string   `json:"label"`
+	Kind           Kind     `json:"kind"`
+	Value          string   `json:"value"`
+	Help           string   `json:"help"`
+	Options        []Option `json:"options,omitempty"`
+	Min            float64  `json:"min"`
+	Max            float64  `json:"max"`
+	Step           string   `json:"step,omitempty"`
+	Network        bool     `json:"network"`
+	MaxLen         int      `json:"maxLength,omitempty"`
+	ReadOnly       bool     `json:"readOnly,omitempty"`
+	CheckedValue   string   `json:"checkedValue,omitempty"`
+	UncheckedValue string   `json:"uncheckedValue,omitempty"`
 }
 
 // Fact is a read-only line in a section.
@@ -100,6 +109,10 @@ type SectionView struct {
 
 // Settings is the allowlist, in screen order.
 func Settings() []Setting {
+	return append(coreSettings(), extraSettings()...)
+}
+
+func coreSettings() []Setting {
 	return []Setting{
 		{
 			ID: "device.friendly_name", Label: "Friendly name", Section: "Printer",
@@ -354,7 +367,20 @@ func Canonical(id, value string) (string, bool) {
 			}
 			return value, true
 		}
-		return "", false
+		max := s.MaxLen
+		if max == 0 {
+			max = 60
+		}
+		if len(value) > max || !plainText(value) {
+			return "", false
+		}
+		return value, true
+	case KindCheck:
+		v := strings.ToLower(value)
+		if v != "on" && v != "off" {
+			return "", false
+		}
+		return v, true
 	default:
 		return "", false
 	}
@@ -415,6 +441,15 @@ func hasOption(s Setting, value string) bool {
 		return ok
 	}
 	return false
+}
+
+func plainText(value string) bool {
+	for _, r := range value {
+		if r < 32 || r == 127 || r == '"' {
+			return false
+		}
+	}
+	return true
 }
 
 func validFriendly(value string) bool {
@@ -502,6 +537,14 @@ func Display(id, value string) string {
 				return o.Label
 			}
 		}
+		if s.ID == "power.energy_star.enable" {
+			if value == "off" {
+				return "Always on"
+			}
+			if value == "on" {
+				return "Sleep allowed"
+			}
+		}
 		if s.ID == "media.printmode" {
 			if word, ok := canonicalPrintMode(value); ok {
 				for _, o := range s.Options {
@@ -530,6 +573,9 @@ func Diff(current map[string]string, changes []Change) ([]Row, error) {
 			return nil, fmt.Errorf("setting %s was sent twice", s.Label)
 		}
 		seen[ch.ID] = true
+		if s.ReadOnly {
+			continue
+		}
 		cur := current[ch.ID]
 		if Same(ch.ID, cur, ch.Value) {
 			continue
@@ -582,7 +628,12 @@ func explainInvalid(s Setting, value string) string {
 	case KindSelect:
 		return "pick one of the listed choices"
 	case KindText:
-		return "use 1 to 32 letters, numbers, spaces, or dashes"
+		if s.ID == "device.friendly_name" {
+			return "use 1 to 32 letters, numbers, spaces, or dashes"
+		}
+		return fmt.Sprintf("use at most %d characters, with no quotes", s.MaxLen)
+	case KindCheck:
+		return "choose on or off"
 	default:
 		return fmt.Sprintf("%q is not an allowed value", value)
 	}
@@ -598,7 +649,7 @@ func labelOf(id string) string {
 // BuildView turns a value map into the cards the screen draws.
 // facts are read-only lines for the Printer card (model, firmware, and so on).
 func BuildView(values map[string]string, facts []Fact) []SectionView {
-	order := []string{"Printer", "Media", "Print", "Sensor", "Network"}
+	order := []string{"Printer", "Media", "Print", "Sensor", "Power", "Network"}
 	bySection := map[string][]FieldView{}
 	for _, s := range Settings() {
 		raw := values[s.ID]
@@ -607,15 +658,19 @@ func BuildView(values map[string]string, facts []Fact) []SectionView {
 			shown = c
 		}
 		fv := FieldView{
-			ID:      s.ID,
-			Label:   s.Label,
-			Kind:    s.Kind,
-			Value:   shown,
-			Help:    s.Help,
-			Min:     s.Min,
-			Max:     s.Max,
-			Step:    s.Step,
-			Network: s.Network,
+			ID:             s.ID,
+			Label:          s.Label,
+			Kind:           s.Kind,
+			Value:          shown,
+			Help:           s.Help,
+			Min:            s.Min,
+			Max:            s.Max,
+			Step:           s.Step,
+			Network:        s.Network,
+			MaxLen:         s.MaxLen,
+			ReadOnly:       s.ReadOnly,
+			CheckedValue:   s.CheckedValue,
+			UncheckedValue: s.UncheckedValue,
 		}
 		if s.Kind == KindSelect {
 			fv.Options = optionsFor(s, shown, raw)

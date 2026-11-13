@@ -63,6 +63,26 @@
     </div>
     <p class="help" id="import-help">Export saves settings plus the model and firmware. Import leaves IP, mask, gateway, port, and addressing out unless the box is checked.</p>
 
+    <section class="card" id="replace-card" aria-labelledby="replace-heading">
+      <h2 id="replace-heading">Replace a failed printer</h2>
+      <ol class="steps">
+        <li>On the old printer, if it still responds, click <strong>Save replacement file</strong>. A settings file you already saved works too.</li>
+        <li>Connect to the new printer and load that file here. The new name starts as the old name plus _.</li>
+      </ol>
+      <div class="button-row">
+        <button type="button" id="replacement-export" class="ghost">Save replacement file</button>
+        <label class="import">
+          <span>Load replacement file</span>
+          <input id="replacement-file" type="file" accept="application/json,.json">
+        </label>
+      </div>
+      <label class="check">
+        <input id="replacement-force" type="checkbox">
+        <span>This file is a normal settings export from the old printer</span>
+      </label>
+      <p class="help">A replacement file copies the settings and the DHCP client ID. The old IP address is left out unless you check that box in the review, because two printers cannot share an address.</p>
+    </section>
+
     <div id="sections" class="sections"></div>
 
     <section class="card" aria-labelledby="fixes-heading">

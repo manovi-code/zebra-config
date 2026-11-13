@@ -90,6 +90,11 @@ input, select {
   width: 100%;
 }
 
+input[type="checkbox"] { width: auto; }
+
+.steps { margin: 8px 0 12px; padding-left: 1.2rem; }
+.steps li { margin: 4px 0; }
+
 input:focus, select:focus, button:focus {
   outline: 3px solid rgba(11, 92, 171, 0.35);
   outline-offset: 1px;
