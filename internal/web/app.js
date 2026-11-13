@@ -109,6 +109,12 @@ function renderSession(snap) {
       warn.textContent = "Changing these can make the printer drop off the network. They are not sent until you review them and confirm the warning.";
       card.appendChild(warn);
     }
+    if (section.name === "Power") {
+      const status = document.createElement("p");
+      status.id = "power-status";
+      status.className = "warn-text";
+      card.appendChild(status);
+    }
     for (const fact of section.facts || []) {
       const row = document.createElement("div");
       row.className = "fact";
@@ -126,7 +132,13 @@ function renderSession(snap) {
       span.textContent = field.label;
       label.appendChild(span);
       let input;
-      if (field.kind === "select") {
+      if (field.kind === "check") {
+        input = document.createElement("input");
+        input.type = "checkbox";
+        input.dataset.checkedValue = field.checkedValue || "on";
+        input.dataset.uncheckedValue = field.uncheckedValue || "off";
+        input.checked = field.value === input.dataset.checkedValue;
+      } else if (field.kind === "select") {
         input = document.createElement("select");
         for (const opt of field.options || []) {
           const o = document.createElement("option");
@@ -146,11 +158,17 @@ function renderSession(snap) {
           input.type = "text";
           input.autocomplete = "off";
           input.spellcheck = false;
+          if (field.maxLength) input.maxLength = field.maxLength;
         }
         input.value = field.value;
       }
       input.dataset.setting = field.id;
-      input.disabled = !!snap.readonly;
+      if (field.readOnly) input.dataset.readOnly = "1";
+      input.disabled = !!snap.readonly || !!field.readOnly;
+      if (field.id === "power.energy_star.enable" || field.id === "power.energy_star.timeout") {
+        input.addEventListener("input", updatePowerStatus);
+        input.addEventListener("change", updatePowerStatus);
+      }
       label.appendChild(input);
       const help = document.createElement("small");
       help.textContent = field.help;
@@ -167,12 +185,36 @@ function renderSession(snap) {
     btn.disabled = lock;
   });
   $("console-send").disabled = false;
+  for (const id of ["replacement-export", "replacement-file", "replacement-force"]) {
+    const el = $(id);
+    if (el) el.disabled = lock;
+  }
+  updatePowerStatus();
+}
+
+function updatePowerStatus() {
+  const el = $("power-status");
+  const enable = document.querySelector('[data-setting="power.energy_star.enable"]');
+  const timeout = document.querySelector('[data-setting="power.energy_star.timeout"]');
+  if (!el || !enable || !timeout) return;
+  if (enable.checked) {
+    el.textContent = "Right now: Always on";
+    return;
+  }
+  const sec = Number(timeout.value);
+  const min = Math.round(sec / 60);
+  el.textContent = "Right now: Sleeps after " + (Number.isFinite(min) ? min : "?") + " min";
 }
 
 function collectChanges() {
   const changes = [];
   document.querySelectorAll("[data-setting]").forEach((el) => {
-    changes.push({ id: el.dataset.setting, value: el.value });
+    if (el.dataset.readOnly === "1") return;
+    let value = el.value;
+    if (el.type === "checkbox") {
+      value = el.checked ? el.dataset.checkedValue : el.dataset.uncheckedValue;
+    }
+    changes.push({ id: el.dataset.setting, value: value });
   });
   return changes;
 }
@@ -189,6 +231,60 @@ function openModal(opts) {
   $("modal-title").textContent = opts.title || "Review changes";
   const body = $("modal-body");
   body.replaceChildren();
+  if (opts.message) {
+    const p = document.createElement("p");
+    p.textContent = opts.message;
+    body.appendChild(p);
+  }
+  if (opts.suffixChoices && opts.suffixChoices.length) {
+    for (const choice of opts.suffixChoices) {
+      if (!choice.enabled) continue;
+      const label = document.createElement("label");
+      label.className = "check";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!choice.checked;
+      box.dataset.suffix = choice.id;
+      const span = document.createElement("span");
+      const from = choice.from ? choice.from : "(blank)";
+      span.textContent = "Add _ to the " + choice.label + " (" + from + " becomes " + choice.to + "). " + choice.reason;
+      label.append(box, span);
+      body.appendChild(label);
+      box.addEventListener("change", () => {
+        const selected = [];
+        body.querySelectorAll("[data-suffix]").forEach((el) => {
+          if (el.checked) selected.push(el.dataset.suffix);
+        });
+        if (opts.reloadSuffix) opts.reloadSuffix(selected);
+      });
+    }
+  }
+  if (opts.replacement) {
+    const nameLabel = document.createElement("label");
+    nameLabel.className = "field";
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = "Name for the new printer";
+    const nameInput = document.createElement("input");
+    nameInput.id = "replacement-name";
+    nameInput.value = opts.nameField;
+    const nameHelp = document.createElement("small");
+    nameHelp.textContent = "Starts as the old printer's name. Change it here if you want a different name.";
+    nameLabel.append(nameSpan, nameInput, nameHelp);
+    body.appendChild(nameLabel);
+    const ipLabel = document.createElement("label");
+    ipLabel.className = "check";
+    const ipBox = document.createElement("input");
+    ipBox.type = "checkbox";
+    ipBox.id = "replacement-static-ip";
+    ipBox.checked = !!opts.includeStaticIP;
+    const ipText = document.createElement("span");
+    ipText.textContent = "Also copy the old IP address, subnet mask, gateway, and addressing method";
+    ipLabel.append(ipBox, ipText);
+    body.appendChild(ipLabel);
+    ipBox.addEventListener("change", () => {
+      if (opts.reload) opts.reload(ipBox.checked, nameInput.value.trim());
+    });
+  }
   if (opts.notes) {
     for (const note of opts.notes) {
       const p = document.createElement("p");
@@ -216,11 +312,6 @@ function openModal(opts) {
       table.appendChild(tr);
     }
     body.appendChild(table);
-  }
-  if (opts.message) {
-    const p = document.createElement("p");
-    p.textContent = opts.message;
-    body.appendChild(p);
   }
   const warning = $("modal-warning");
   if (opts.warning) {
@@ -392,10 +483,10 @@ async function sendConsole() {
   showBanner("error", res.body.error || "The command was not sent.");
 }
 
-async function doExport() {
+async function doExport(replacement) {
   let res;
   try {
-    res = await fetch("/api/export");
+    res = await fetch(replacement ? "/api/export?replacement=1" : "/api/export");
   } catch (err) {
     showBanner("error", "Zebra Config is not responding. The window that opened with it may have been closed.");
     return;
@@ -415,10 +506,102 @@ async function doExport() {
   const blob = new Blob([text], { type: "application/json" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "zebra-config.json";
+  link.download = replacement ? "zebra-config-replacement.json" : "zebra-config.json";
   link.click();
   URL.revokeObjectURL(link.href);
-  showBanner("ok", "Exported settings. Import leaves network settings out unless you check the box.");
+  if (!replacement) {
+    showBanner("ok", "Exported settings. Import leaves network settings out unless you check the box.");
+    return;
+  }
+  showBanner("ok", "Saved a replacement file. Confirm the next screen only if this is the old printer.");
+  openOldRename();
+}
+
+let replacementFromSaved = false;
+
+async function openOldRename(suffixes) {
+  const res = await jsonPost("/api/old-rename", suffixes === undefined ? {} : { suffixes: suffixes });
+  if (!res.body.ok) {
+    showBanner("error", (res.body.error || "The old printer was not renamed.") + " The replacement file is already saved.");
+    return;
+  }
+  if (!res.body.rows || res.body.rows.length === 0) {
+    showBanner("ok", "Saved a replacement file. This printer did not need a rename.");
+    return;
+  }
+  openModal({
+    title: "Rename the old printer to " + res.body.retiredName,
+    message: res.body.message,
+    rows: res.body.rows,
+    notes: res.body.notes,
+    warning: res.body.warning,
+    needsExtra: res.body.needsExtra,
+    extraLabel: res.body.extraLabel,
+    offerSave: true,
+    suffixChoices: res.body.suffixChoices || [],
+    reloadSuffix: (selected) => openOldRename(selected),
+    send: async ({ extraConfirm, save }) => jsonPost("/api/apply", {
+      changes: res.body.changes,
+      confirm: true,
+      extraConfirm,
+      save,
+    }),
+  });
+}
+
+let replacementDoc = null;
+
+async function previewReplacement(includeStatic, name) {
+  if (!replacementDoc) {
+    showBanner("error", "Choose the file from the old printer first.");
+    return;
+  }
+  const res = await jsonPost("/api/import", {
+    document: replacementDoc,
+    replacement: true,
+    includeStaticIP: !!includeStatic,
+    newName: name || "",
+  });
+  if (!res.body.ok) {
+    showBanner("error", res.body.error || "Could not read that replacement file.");
+    return;
+  }
+  if (!res.body.rows || res.body.rows.length === 0) {
+    showBanner("ok", (res.body.notes || []).join(" ") || "Nothing in that file is different.");
+    return;
+  }
+  showBanner(null, "");
+  const notes = (res.body.notes || []).slice();
+  if (replacementFromSaved) {
+    notes.unshift("The old printer is not connected, so it was not renamed. If it is still on the network, change its name before this printer uses the same name.");
+  }
+  openModal({
+    title: "Replace a failed printer",
+    rows: res.body.rows,
+    notes: notes,
+    warning: res.body.warning,
+    needsExtra: res.body.needsExtra,
+    extraLabel: res.body.extraLabel,
+    offerSave: true,
+    replacement: true,
+    nameField: name || res.body.suggestedName || "",
+    includeStaticIP: !!includeStatic,
+    reload: (checked, edited) => previewReplacement(checked, edited),
+    send: async ({ extraConfirm, save }) => {
+      const edited = ($("replacement-name") && $("replacement-name").value.trim()) || res.body.suggestedName;
+      const changes = (res.body.changes || []).map((change) => {
+        if (change.id === "device.friendly_name") return { id: change.id, value: edited };
+        if (String(change.id).indexOf("option12_format") >= 0 && change.value === res.body.suggestedName) {
+          return { id: change.id, value: edited };
+        }
+        return change;
+      });
+      if (!changes.some((change) => change.id === "device.friendly_name")) {
+        changes.push({ id: "device.friendly_name", value: edited });
+      }
+      return jsonPost("/api/apply", { changes, confirm: true, extraConfirm, save });
+    },
+  });
 }
 
 async function doImport(file) {
@@ -434,6 +617,12 @@ async function doImport(file) {
     documentJson = JSON.parse(text);
   } catch (err) {
     showBanner("error", "That file is not JSON.");
+    return;
+  }
+  if (documentJson.kind === "replacement") {
+    replacementDoc = documentJson;
+    replacementFromSaved = false;
+    previewReplacement(false, "");
     return;
   }
   const res = await jsonPost("/api/import", {
@@ -547,7 +736,34 @@ $("refresh-btn").addEventListener("click", async () => {
   renderSession(res.body.snapshot);
   showBanner("ok", "Refreshed from the printer.");
 });
-$("export-btn").addEventListener("click", doExport);
+$("export-btn").addEventListener("click", () => doExport(false));
+$("replacement-export").addEventListener("click", () => doExport(true));
+$("replacement-file").addEventListener("change", async () => {
+  const file = $("replacement-file").files && $("replacement-file").files[0];
+  $("replacement-file").value = "";
+  if (!file) return;
+  let text;
+  try {
+    text = await file.text();
+  } catch (err) {
+    showBanner("error", "Could not read that file.");
+    return;
+  }
+  try {
+    replacementDoc = JSON.parse(text);
+  } catch (err) {
+    showBanner("error", "That file is not JSON.");
+    return;
+  }
+  replacementFromSaved = replacementDoc.kind !== "replacement";
+  if (replacementFromSaved && !$("replacement-force").checked) {
+    showBanner("error", "That file is a normal settings export. Check the box if it came from the old printer, then choose it again.");
+    replacementDoc = null;
+    replacementFromSaved = false;
+    return;
+  }
+  previewReplacement(false, "");
+});
 $("import-file").addEventListener("change", () => {
   const file = $("import-file").files && $("import-file").files[0];
   $("import-file").value = "";

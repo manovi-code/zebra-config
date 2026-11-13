@@ -219,33 +219,57 @@ func newState(opt Options) *state {
 		width = "640"
 	}
 	factory := map[string]string{
-		"device.friendly_name":       "ZD411",
-		"device.languages":           "hybrid_xml_zpl",
-		"ezpl.media_type":            "gap/notch",
-		"media.printmode":            "tear off",
-		"ezpl.print_method":          "direct thermal",
-		"device.sensor_select":       "transmissive",
-		"ezpl.power_up_action":       "no motion",
-		"ezpl.head_close_action":     "feed",
-		"print.tone":                 "10.0",
-		"media.speed":                "6",
-		"ezpl.print_width":           width,
-		"zpl.label_length":           "1225",
-		"ezpl.tear_off":              "0",
-		"internal_wired.ip.protocol": "all",
-		"internal_wired.ip.addr":     "0.0.0.0",
-		"internal_wired.ip.netmask":  "255.255.255.0",
-		"internal_wired.ip.gateway":  "0.0.0.0",
-		"internal_wired.ip.port":     "9100",
+		"device.friendly_name":                   "ZD411",
+		"device.languages":                       "hybrid_xml_zpl",
+		"ezpl.media_type":                        "gap/notch",
+		"media.printmode":                        "tear off",
+		"ezpl.print_method":                      "direct thermal",
+		"device.sensor_select":                   "transmissive",
+		"ezpl.power_up_action":                   "no motion",
+		"ezpl.head_close_action":                 "feed",
+		"print.tone":                             "10.0",
+		"media.speed":                            "6",
+		"ezpl.print_width":                       width,
+		"zpl.label_length":                       "1225",
+		"ezpl.tear_off":                          "0",
+		"internal_wired.ip.protocol":             "all",
+		"internal_wired.ip.addr":                 "0.0.0.0",
+		"internal_wired.ip.netmask":              "255.255.255.0",
+		"internal_wired.ip.gateway":              "0.0.0.0",
+		"internal_wired.ip.port":                 "9100",
+		"internal_wired.ip.dhcp.cid_enable":      "off",
+		"internal_wired.ip.dhcp.cid_type":        "1",
+		"internal_wired.ip.dhcp.cid_prefix":      "",
+		"internal_wired.ip.dhcp.cid_suffix":      "",
+		"internal_wired.ip.dhcp.option12":        "on",
+		"internal_wired.ip.dhcp.option12_format": "<device.friendly_name>",
+		"wlan.ip.dhcp.cid_enable":                "off",
+		"wlan.ip.dhcp.cid_type":                  "1",
+		"wlan.ip.dhcp.cid_prefix":                "",
+		"wlan.ip.dhcp.cid_suffix":                "",
+		"ip.dhcp.option12":                       "on",
+		"ip.dhcp.option12_format":                "<device.friendly_name>",
+		"power.energy_star.enable":               "on",
+		"power.energy_star.timeout":              "180",
 	}
 	// A printer that already has a name and a leased address is more like
 	// the one a tech sits down in front of. Factory reset returns to the
 	// map above. ^JU rules: current starts equal to saved.
 	current := copyMap(factory)
-	current["device.friendly_name"] = "Shipping desk"
+	current["device.friendly_name"] = "PRN-LAB2"
 	current["internal_wired.ip.protocol"] = "dhcp"
 	current["internal_wired.ip.addr"] = "192.168.1.50"
 	current["internal_wired.ip.gateway"] = "192.168.1.1"
+	// Text client IDs (type 0) are on, so a replacement rename can offer to
+	// append "_" to the suffix. Hex and MAC types are refused in the catalog.
+	current["internal_wired.ip.dhcp.cid_enable"] = "on"
+	current["internal_wired.ip.dhcp.cid_type"] = "0"
+	current["internal_wired.ip.dhcp.cid_prefix"] = "LAB"
+	current["internal_wired.ip.dhcp.cid_suffix"] = "ZD411"
+	current["wlan.ip.dhcp.cid_enable"] = "on"
+	current["wlan.ip.dhcp.cid_type"] = "0"
+	current["wlan.ip.dhcp.cid_prefix"] = "LAB"
+	current["wlan.ip.dhcp.cid_suffix"] = "WIFI"
 	if opt.Model != "ZD411" && opt.Model != "ZD410" {
 		current["device.friendly_name"] = opt.Model
 	}
@@ -270,6 +294,12 @@ func (s *state) get(name string) string {
 		return s.firmware
 	case "head.resolution.in_dpi":
 		return strconv.Itoa(s.dpi)
+	case "internal_wired.ip.dhcp.option12_value":
+		format := s.values["internal_wired.ip.dhcp.option12_format"]
+		if format == "" || format == "<device.friendly_name>" {
+			return s.values["device.friendly_name"]
+		}
+		return format
 	}
 	if v, ok := s.values[name]; ok {
 		return v

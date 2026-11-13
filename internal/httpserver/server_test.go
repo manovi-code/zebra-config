@@ -239,7 +239,7 @@ func TestConnectApplyImportAndConsole(t *testing.T) {
 		"includeNetwork": false,
 		"document":       doc,
 	})
-	if status != 200 {
+	if status != 200 || imported["ok"] != true {
 		t.Fatalf("import %d %+v", status, imported)
 	}
 	rows := imported["rows"].([]any)
@@ -307,6 +307,138 @@ func TestUnsupportedIsReadOnly(t *testing.T) {
 	status, action := postJSON(t, base+"/api/action", map[string]any{"action": "calibrate", "confirm": true})
 	if status != 200 || action["code"] != "readonly" {
 		t.Fatalf("readonly action %d %+v", status, action)
+	}
+}
+
+func TestReplacementImportAndAlwaysOn(t *testing.T) {
+	printerSim, err := sim.Listen("127.0.0.1:0", sim.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = printerSim.Close() })
+	base := startUI(t, printer.Timeouts{})
+	status, conn := postJSON(t, base+"/api/connect", map[string]any{"ip": "127.0.0.1", "port": printerSim.Port()})
+	if status != 200 || conn["ok"] != true {
+		t.Fatalf("connect %d %+v", status, conn)
+	}
+	if !sectionNames(conn["snapshot"].(map[string]any))["Power"] {
+		t.Fatal("Power section missing")
+	}
+	status, preview := postJSON(t, base+"/api/preview", map[string]any{
+		"changes": []map[string]string{
+			{"id": "internal_wired.ip.dhcp.option12_value", "value": "PRN-LAB2"},
+			{"id": "internal_wired.ip.dhcp.cid_prefix", "value": "OTHER"},
+		},
+	})
+	if status != 200 || preview["ok"] != true || preview["needsExtra"] != true {
+		t.Fatalf("preview with read-only host name %d %+v", status, preview)
+	}
+	res, err := http.Get(base + "/api/export?replacement=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exportBody, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	var exported map[string]any
+	if err := json.Unmarshal(exportBody, &exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported["kind"] != "replacement" {
+		t.Fatalf("kind %+v", exported["kind"])
+	}
+	doc := map[string]any{
+		"zebraConfig": 1,
+		"kind":        "settings",
+		"exportedAt":  "2026-11-13T00:00:00Z",
+		"tool":        "zebra-config 0.1.1",
+		"printer":     map[string]any{"productName": "ZD411", "firmware": "V", "dpi": 203},
+		"settings": map[string]string{
+			"device.friendly_name":                  "PRN-LAB2",
+			"internal_wired.ip.dhcp.cid_prefix":     "OLD",
+			"internal_wired.ip.addr":                "10.2.2.2",
+			"internal_wired.ip.netmask":             "255.255.255.0",
+			"internal_wired.ip.gateway":             "10.2.2.1",
+			"internal_wired.ip.protocol":            "permanent",
+			"power.energy_star.enable":              "off",
+			"internal_wired.ip.dhcp.option12_value": "PRN-LAB2",
+		},
+	}
+	status, imported := postJSON(t, base+"/api/import", map[string]any{
+		"document":    doc,
+		"replacement": true,
+	})
+	if status != 200 || imported["ok"] != true {
+		t.Fatalf("import %d %+v", status, imported)
+	}
+	if imported["suggestedName"] != "PRN-LAB2" || imported["needsExtra"] != true {
+		t.Fatalf("preview %+v", imported)
+	}
+	if !strings.Contains(imported["warning"].(string), "client ID") {
+		t.Fatalf("warning %v", imported["warning"])
+	}
+	ids := map[string]string{}
+	for _, raw := range imported["rows"].([]any) {
+		row := raw.(map[string]any)
+		ids[row["id"].(string)] = row["after"].(string)
+	}
+	if _, ok := ids["device.friendly_name"]; ok {
+		t.Fatalf("new printer name should stay the old name when it already matches: %+v", ids)
+	}
+	if ids["internal_wired.ip.dhcp.cid_prefix"] != "OLD" {
+		t.Fatalf("prefix row %+v", ids)
+	}
+	if _, ok := ids["internal_wired.ip.addr"]; ok {
+		t.Fatal("static IP was included without the opt-in")
+	}
+	if _, ok := ids["internal_wired.ip.dhcp.option12_value"]; ok {
+		t.Fatal("read-only host name was included")
+	}
+	if ids["power.energy_star.enable"] != "off" {
+		t.Fatalf("sleep row %+v", ids)
+	}
+	status, withIP := postJSON(t, base+"/api/import", map[string]any{
+		"document": doc, "replacement": true, "includeStaticIP": true, "newName": "PRN-LAB2_",
+	})
+	if status != 200 || !strings.Contains(withIP["warning"].(string), "clash") {
+		t.Fatalf("static %d %+v", status, withIP)
+	}
+	foundIP := false
+	for _, raw := range withIP["rows"].([]any) {
+		row := raw.(map[string]any)
+		if row["id"] == "internal_wired.ip.addr" {
+			foundIP = true
+		}
+	}
+	if !foundIP {
+		t.Fatal("opt-in did not include the IP address")
+	}
+	status, applied := postJSON(t, base+"/api/apply", map[string]any{
+		"changes": []map[string]string{{"id": "power.energy_star.enable", "value": "off"}},
+		"confirm": true, "save": false,
+	})
+	if status != 200 || printerSim.Get("power.energy_star.enable") != "off" {
+		t.Fatalf("always on %d sim %s %+v", status, printerSim.Get("power.energy_star.enable"), applied)
+	}
+	status, rename := postJSON(t, base+"/api/old-rename", map[string]any{})
+	if status != 200 || rename["ok"] != true || rename["retiredName"] != "PRN-LAB2_" || rename["needsExtra"] != true {
+		t.Fatalf("rename %d %+v", status, rename)
+	}
+	renamed := map[string]string{}
+	for _, raw := range rename["rows"].([]any) {
+		row := raw.(map[string]any)
+		renamed[row["id"].(string)] = row["after"].(string)
+	}
+	if renamed["device.friendly_name"] != "PRN-LAB2_" || renamed["internal_wired.ip.dhcp.cid_suffix"] != "ZD411_" || renamed["wlan.ip.dhcp.cid_suffix"] != "WIFI_" {
+		t.Fatalf("rename rows %+v", renamed)
+	}
+	status, appliedRename := postJSON(t, base+"/api/apply", map[string]any{
+		"changes":      rename["changes"],
+		"confirm":      true,
+		"extraConfirm": true,
+		"save":         false,
+	})
+	if status != 200 || printerSim.Get("device.friendly_name") != "PRN-LAB2_" || printerSim.Get("internal_wired.ip.dhcp.cid_suffix") != "ZD411_" || printerSim.Get("wlan.ip.dhcp.cid_suffix") != "WIFI_" {
+		t.Fatalf("apply rename %d name %s %+v", status, printerSim.Get("device.friendly_name"), appliedRename)
 	}
 }
 

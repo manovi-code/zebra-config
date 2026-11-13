@@ -66,6 +66,7 @@ func New(recentPath string, t printer.Timeouts) (*Server, error) {
 	mux.HandleFunc("POST /api/console", s.handleConsole)
 	mux.HandleFunc("GET /api/export", s.handleExport)
 	mux.HandleFunc("POST /api/import", s.handleImport)
+	mux.HandleFunc("POST /api/old-rename", s.handleOldRename)
 	mux.HandleFunc("DELETE /api/recent", s.handleForget)
 	s.http = &http.Server{
 		Handler:           mux,
@@ -422,8 +423,15 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "not_connected", "Connect to a printer first.")
 		return
 	}
+	filename := "zebra-config.json"
+	kind := ""
+	if r.URL.Query().Get("replacement") == "1" {
+		kind = "replacement"
+		filename = "zebra-config-replacement.json"
+	}
 	doc := exportDoc{
 		ZebraConfig: 1,
+		Kind:        kind,
 		ExportedAt:  time.Now().UTC().Format(time.RFC3339),
 		Tool:        "zebra-config " + printer.Version,
 		Printer: exportPrinter{
@@ -440,14 +448,17 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 	setHeaders(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="zebra-config.json"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 	_, _ = w.Write(append(body, '\n'))
 }
 
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		IncludeNetwork bool            `json:"includeNetwork"`
-		Document       json.RawMessage `json:"document"`
+		IncludeNetwork  bool            `json:"includeNetwork"`
+		Replacement     bool            `json:"replacement"`
+		NewName         string          `json:"newName"`
+		IncludeStaticIP bool            `json:"includeStaticIP"`
+		Document        json.RawMessage `json:"document"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	if err := decode(w, r, &body); err != nil {
@@ -468,26 +479,39 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "readonly", "This printer is read-only. Import is turned off.")
 		return
 	}
-	var changes []catalog.Change
-	var notes []string
-	skippedNetwork := false
-	for id, value := range doc.Settings {
-		if dangerousKey(id) {
+	for id := range doc.Settings {
+		if !catalog.KnownID(id) && dangerousKey(id) {
 			writeErr(w, http.StatusBadRequest, "bad_file", "This file is not a settings export. It names printer files or label data, which this tool will not send.")
 			return
 		}
-		if !catalog.KnownID(id) {
-			notes = append(notes, fmt.Sprintf("Skipped unknown setting %q.", id))
-			continue
-		}
-		if catalog.IsNetwork(id) && !body.IncludeNetwork {
-			skippedNetwork = true
-			continue
-		}
-		changes = append(changes, catalog.Change{ID: id, Value: value})
 	}
-	if skippedNetwork {
-		notes = append(notes, "Network settings in the file were left out. Check the box to include them.")
+	var changes []catalog.Change
+	var notes []string
+	suggested := ""
+	if body.Replacement || doc.Kind == "replacement" {
+		var old string
+		changes, notes, old, suggested = catalog.ReplacementPlan(doc.Settings, body.NewName, body.IncludeStaticIP)
+		_ = old
+	} else {
+		skippedNetwork := false
+		for id, value := range doc.Settings {
+			sdef, known := catalog.ByID(id)
+			if !known {
+				notes = append(notes, fmt.Sprintf("Skipped unknown setting %q.", id))
+				continue
+			}
+			if sdef.ReadOnly {
+				continue
+			}
+			if catalog.IsNetwork(id) && !body.IncludeNetwork {
+				skippedNetwork = true
+				continue
+			}
+			changes = append(changes, catalog.Change{ID: id, Value: value})
+		}
+		if skippedNetwork {
+			notes = append(notes, "Network settings in the file were left out. Check the box to include them.")
+		}
 	}
 	rows, err := catalog.Diff(s.sess.snap.Values, changes)
 	if err != nil {
@@ -496,7 +520,66 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := reviewPayload(rows, notes)
 	payload["changes"] = changesFromRows(rows)
+	if body.Replacement || doc.Kind == "replacement" {
+		payload["replacement"] = true
+		payload["suggestedName"] = suggested
+		if catalog.NeedsExtra(rows) {
+			payload["warning"] = replacementWarning(body.IncludeStaticIP)
+			payload["needsExtra"] = true
+		}
+	}
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *Server) handleOldRename(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Suffixes *[]string `json:"suffixes"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+	if err := decode(w, r, &body); err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sess == nil {
+		writeErr(w, http.StatusConflict, "not_connected", "Connect to the old printer first.")
+		return
+	}
+	if s.sess.snap.Readonly {
+		writeErr(w, http.StatusConflict, "readonly", "This printer is read-only. Its name was not changed.")
+		return
+	}
+	var include map[string]bool
+	if body.Suffixes != nil {
+		include = map[string]bool{}
+		for _, id := range *body.Suffixes {
+			include[id] = true
+		}
+	}
+	changes, notes, choices, retired := catalog.OldRenamePlan(s.sess.snap.Values, include)
+	rows, err := catalog.Diff(s.sess.snap.Values, changes)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_value", err.Error())
+		return
+	}
+	payload := reviewPayload(rows, notes)
+	payload["changes"] = changesFromRows(rows)
+	payload["retiredName"] = retired
+	payload["suffixChoices"] = choices
+	payload["message"] = "Rename the old printer to " + retired + " so the new one can take its name."
+	if catalog.NeedsExtra(rows) {
+		payload["warning"] = "Adding _ to the client ID can give this printer a different address. You may have to reconnect."
+		payload["needsExtra"] = true
+	}
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func replacementWarning(staticIP bool) string {
+	msg := "The DHCP client ID from the old printer will be copied. The new printer may get a different address and drop off the network. A new address usually applies after a restart."
+	if staticIP {
+		msg += " The old IP address is included. If the old printer is still on, the two printers will clash."
+	}
+	return msg
 }
 
 func (s *Server) handleForget(w http.ResponseWriter, r *http.Request) {
@@ -571,6 +654,7 @@ type exportPrinter struct {
 
 type exportDoc struct {
 	ZebraConfig int               `json:"zebraConfig"`
+	Kind        string            `json:"kind,omitempty"`
 	ExportedAt  string            `json:"exportedAt"`
 	Tool        string            `json:"tool"`
 	Printer     exportPrinter     `json:"printer"`

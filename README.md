@@ -48,6 +48,14 @@ Recent printers are remembered on this computer as an IP, a name, and a model. T
 
 **Quit** stops Zebra Config. On Windows, closing the program window also stops it. Closing the browser tab does not.
 
+**Power** has one switch, **Keep printer always on**. Checked means Energy Star sleep is off. The line under it says "Always on" or "Sleeps after N min".
+
+**Network** includes the DHCP client ID (prefix, suffix, type, and on/off) for the wired port and for Wi-Fi, plus the DHCP host name (option 12). Those are network changes: the printer may get a different address. Confirm the extra warning before they are sent.
+
+**Replace a failed printer** saves a replacement file from the old printer, if it still responds. The new printer's name starts as that exact name, and you can edit it in the review. The tool then asks, in its own confirm screen, whether to rename the old printer to that name plus `_`. It does not rename anything without that confirm. If the file is an older saved export and the old printer is not connected, the rename is skipped and the page says so. The old IP address is not copied unless you check that box, because two printers cannot share an address.
+
+When the old printer's DHCP client ID is a text suffix and that ID is turned on, the same confirm offers to add `_` to the suffix, and that box starts checked. The guide uses the suffix only for text (`cid_type` 0) and hex (`cid_type` 2). `_` is not a hex character, and a MAC client ID (`cid_type` 1) does not send the suffix, so those two cases are explained and left unchanged.
+
 ## Run the simulator
 
 The simulator is a pretend ZD411 for practice and for tests. It is not a real printer. From a checkout of this repository:
@@ -109,6 +117,10 @@ This version was checked against the simulator and against Zebra's published gui
 - `~HS` is documented to stay silent when the printer is out of paper, out of ribbon, or the head is open. A timeout there is shown as "no status reply", not as a failed connection.
 - `device.sensor_select` may report `auto` even though the SGD page only lists `reflective` and `transmissive`.
 - Quote framing: replies are parsed as `"value"` with no terminator. A value that itself contains a quote is not handled, and the tool refuses to send one.
+- Whether a DHCP client ID change (`internal_wired.ip.dhcp.cid_*` or `wlan.ip.dhcp.cid_*`) takes effect before `device.reset`. The guide does not say a reset is required for the client ID. A new permanent IP address does require one.
+- `power.sleep.enable` and `power.sleep.timeout` are documented for mobile printers. They are not in the desktop SGD command index, so this tool does not send them. ZD410/ZD411 sleep is sent as `power.energy_star.enable` and `power.energy_star.timeout`. Whether a particular ZD410 firmware also honors `power.sleep.*` was not checked.
+- `ip.dhcp.cid_*` exists as well as `wlan.ip.dhcp.cid_*`. This tool writes the `wlan.ip.dhcp.cid_*` names from the wireless pages, not both.
+- DHCP option 12 on Wi-Fi is `ip.dhcp.option12`. The wired names are `internal_wired.ip.dhcp.option12`, `option12_format`, and read-only `option12_value`. A ZD410 without Wi-Fi may answer `?` for the Wi-Fi names.
 
 ## Build from source
 
