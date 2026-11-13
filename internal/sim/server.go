@@ -260,6 +260,8 @@ func newState(opt Options) *state {
 	current["internal_wired.ip.protocol"] = "dhcp"
 	current["internal_wired.ip.addr"] = "192.168.1.50"
 	current["internal_wired.ip.gateway"] = "192.168.1.1"
+	// Text client IDs (type 0) are on, so a replacement rename can offer to
+	// append "_" to the suffix. Hex and MAC types are refused in the catalog.
 	current["internal_wired.ip.dhcp.cid_enable"] = "on"
 	current["internal_wired.ip.dhcp.cid_type"] = "0"
 	current["internal_wired.ip.dhcp.cid_prefix"] = "LAB"

@@ -370,7 +370,7 @@ func TestReplacementImportAndAlwaysOn(t *testing.T) {
 	if status != 200 || imported["ok"] != true {
 		t.Fatalf("import %d %+v", status, imported)
 	}
-	if imported["suggestedName"] != "PRN-LAB2_" || imported["needsExtra"] != true {
+	if imported["suggestedName"] != "PRN-LAB2" || imported["needsExtra"] != true {
 		t.Fatalf("preview %+v", imported)
 	}
 	if !strings.Contains(imported["warning"].(string), "client ID") {
@@ -381,8 +381,8 @@ func TestReplacementImportAndAlwaysOn(t *testing.T) {
 		row := raw.(map[string]any)
 		ids[row["id"].(string)] = row["after"].(string)
 	}
-	if ids["device.friendly_name"] != "PRN-LAB2_" {
-		t.Fatalf("name row %+v", ids)
+	if _, ok := ids["device.friendly_name"]; ok {
+		t.Fatalf("new printer name should stay the old name when it already matches: %+v", ids)
 	}
 	if ids["internal_wired.ip.dhcp.cid_prefix"] != "OLD" {
 		t.Fatalf("prefix row %+v", ids)
@@ -418,6 +418,27 @@ func TestReplacementImportAndAlwaysOn(t *testing.T) {
 	})
 	if status != 200 || printerSim.Get("power.energy_star.enable") != "off" {
 		t.Fatalf("always on %d sim %s %+v", status, printerSim.Get("power.energy_star.enable"), applied)
+	}
+	status, rename := postJSON(t, base+"/api/old-rename", map[string]any{})
+	if status != 200 || rename["ok"] != true || rename["retiredName"] != "PRN-LAB2_" || rename["needsExtra"] != true {
+		t.Fatalf("rename %d %+v", status, rename)
+	}
+	renamed := map[string]string{}
+	for _, raw := range rename["rows"].([]any) {
+		row := raw.(map[string]any)
+		renamed[row["id"].(string)] = row["after"].(string)
+	}
+	if renamed["device.friendly_name"] != "PRN-LAB2_" || renamed["internal_wired.ip.dhcp.cid_suffix"] != "ZD411_" || renamed["wlan.ip.dhcp.cid_suffix"] != "WIFI_" {
+		t.Fatalf("rename rows %+v", renamed)
+	}
+	status, appliedRename := postJSON(t, base+"/api/apply", map[string]any{
+		"changes":      rename["changes"],
+		"confirm":      true,
+		"extraConfirm": true,
+		"save":         false,
+	})
+	if status != 200 || printerSim.Get("device.friendly_name") != "PRN-LAB2_" || printerSim.Get("internal_wired.ip.dhcp.cid_suffix") != "ZD411_" || printerSim.Get("wlan.ip.dhcp.cid_suffix") != "WIFI_" {
+		t.Fatalf("apply rename %d name %s %+v", status, printerSim.Get("device.friendly_name"), appliedRename)
 	}
 }
 

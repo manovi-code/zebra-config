@@ -66,6 +66,7 @@ func New(recentPath string, t printer.Timeouts) (*Server, error) {
 	mux.HandleFunc("POST /api/console", s.handleConsole)
 	mux.HandleFunc("GET /api/export", s.handleExport)
 	mux.HandleFunc("POST /api/import", s.handleImport)
+	mux.HandleFunc("POST /api/old-rename", s.handleOldRename)
 	mux.HandleFunc("DELETE /api/recent", s.handleForget)
 	s.http = &http.Server{
 		Handler:           mux,
@@ -526,6 +527,49 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 			payload["warning"] = replacementWarning(body.IncludeStaticIP)
 			payload["needsExtra"] = true
 		}
+	}
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *Server) handleOldRename(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Suffixes *[]string `json:"suffixes"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+	if err := decode(w, r, &body); err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sess == nil {
+		writeErr(w, http.StatusConflict, "not_connected", "Connect to the old printer first.")
+		return
+	}
+	if s.sess.snap.Readonly {
+		writeErr(w, http.StatusConflict, "readonly", "This printer is read-only. Its name was not changed.")
+		return
+	}
+	var include map[string]bool
+	if body.Suffixes != nil {
+		include = map[string]bool{}
+		for _, id := range *body.Suffixes {
+			include[id] = true
+		}
+	}
+	changes, notes, choices, retired := catalog.OldRenamePlan(s.sess.snap.Values, include)
+	rows, err := catalog.Diff(s.sess.snap.Values, changes)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_value", err.Error())
+		return
+	}
+	payload := reviewPayload(rows, notes)
+	payload["changes"] = changesFromRows(rows)
+	payload["retiredName"] = retired
+	payload["suffixChoices"] = choices
+	payload["message"] = "Rename the old printer to " + retired + " so the new one can take its name."
+	if catalog.NeedsExtra(rows) {
+		payload["warning"] = "Adding _ to the client ID can give this printer a different address. You may have to reconnect."
+		payload["needsExtra"] = true
 	}
 	writeJSON(w, http.StatusOK, payload)
 }

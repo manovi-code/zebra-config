@@ -231,6 +231,34 @@ function openModal(opts) {
   $("modal-title").textContent = opts.title || "Review changes";
   const body = $("modal-body");
   body.replaceChildren();
+  if (opts.message) {
+    const p = document.createElement("p");
+    p.textContent = opts.message;
+    body.appendChild(p);
+  }
+  if (opts.suffixChoices && opts.suffixChoices.length) {
+    for (const choice of opts.suffixChoices) {
+      if (!choice.enabled) continue;
+      const label = document.createElement("label");
+      label.className = "check";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!choice.checked;
+      box.dataset.suffix = choice.id;
+      const span = document.createElement("span");
+      const from = choice.from ? choice.from : "(blank)";
+      span.textContent = "Add _ to the " + choice.label + " (" + from + " becomes " + choice.to + "). " + choice.reason;
+      label.append(box, span);
+      body.appendChild(label);
+      box.addEventListener("change", () => {
+        const selected = [];
+        body.querySelectorAll("[data-suffix]").forEach((el) => {
+          if (el.checked) selected.push(el.dataset.suffix);
+        });
+        if (opts.reloadSuffix) opts.reloadSuffix(selected);
+      });
+    }
+  }
   if (opts.replacement) {
     const nameLabel = document.createElement("label");
     nameLabel.className = "field";
@@ -240,7 +268,7 @@ function openModal(opts) {
     nameInput.id = "replacement-name";
     nameInput.value = opts.nameField;
     const nameHelp = document.createElement("small");
-    nameHelp.textContent = "Starts as the old name plus _. Change it here if you want a different name.";
+    nameHelp.textContent = "Starts as the old printer's name. Change it here if you want a different name.";
     nameLabel.append(nameSpan, nameInput, nameHelp);
     body.appendChild(nameLabel);
     const ipLabel = document.createElement("label");
@@ -284,11 +312,6 @@ function openModal(opts) {
       table.appendChild(tr);
     }
     body.appendChild(table);
-  }
-  if (opts.message) {
-    const p = document.createElement("p");
-    p.textContent = opts.message;
-    body.appendChild(p);
   }
   const warning = $("modal-warning");
   if (opts.warning) {
@@ -486,9 +509,44 @@ async function doExport(replacement) {
   link.download = replacement ? "zebra-config-replacement.json" : "zebra-config.json";
   link.click();
   URL.revokeObjectURL(link.href);
-  showBanner("ok", replacement
-    ? "Saved a replacement file. Connect to the new printer and load it under Replace a failed printer."
-    : "Exported settings. Import leaves network settings out unless you check the box.");
+  if (!replacement) {
+    showBanner("ok", "Exported settings. Import leaves network settings out unless you check the box.");
+    return;
+  }
+  showBanner("ok", "Saved a replacement file. Confirm the next screen only if this is the old printer.");
+  openOldRename();
+}
+
+let replacementFromSaved = false;
+
+async function openOldRename(suffixes) {
+  const res = await jsonPost("/api/old-rename", suffixes === undefined ? {} : { suffixes: suffixes });
+  if (!res.body.ok) {
+    showBanner("error", (res.body.error || "The old printer was not renamed.") + " The replacement file is already saved.");
+    return;
+  }
+  if (!res.body.rows || res.body.rows.length === 0) {
+    showBanner("ok", "Saved a replacement file. This printer did not need a rename.");
+    return;
+  }
+  openModal({
+    title: "Rename the old printer to " + res.body.retiredName,
+    message: res.body.message,
+    rows: res.body.rows,
+    notes: res.body.notes,
+    warning: res.body.warning,
+    needsExtra: res.body.needsExtra,
+    extraLabel: res.body.extraLabel,
+    offerSave: true,
+    suffixChoices: res.body.suffixChoices || [],
+    reloadSuffix: (selected) => openOldRename(selected),
+    send: async ({ extraConfirm, save }) => jsonPost("/api/apply", {
+      changes: res.body.changes,
+      confirm: true,
+      extraConfirm,
+      save,
+    }),
+  });
 }
 
 let replacementDoc = null;
@@ -513,10 +571,14 @@ async function previewReplacement(includeStatic, name) {
     return;
   }
   showBanner(null, "");
+  const notes = (res.body.notes || []).slice();
+  if (replacementFromSaved) {
+    notes.unshift("The old printer is not connected, so it was not renamed. If it is still on the network, change its name before this printer uses the same name.");
+  }
   openModal({
     title: "Replace a failed printer",
     rows: res.body.rows,
-    notes: res.body.notes,
+    notes: notes,
     warning: res.body.warning,
     needsExtra: res.body.needsExtra,
     extraLabel: res.body.extraLabel,
@@ -559,6 +621,7 @@ async function doImport(file) {
   }
   if (documentJson.kind === "replacement") {
     replacementDoc = documentJson;
+    replacementFromSaved = false;
     previewReplacement(false, "");
     return;
   }
@@ -692,9 +755,11 @@ $("replacement-file").addEventListener("change", async () => {
     showBanner("error", "That file is not JSON.");
     return;
   }
-  if (replacementDoc.kind !== "replacement" && !$("replacement-force").checked) {
+  replacementFromSaved = replacementDoc.kind !== "replacement";
+  if (replacementFromSaved && !$("replacement-force").checked) {
     showBanner("error", "That file is a normal settings export. Check the box if it came from the old printer, then choose it again.");
     replacementDoc = null;
+    replacementFromSaved = false;
     return;
   }
   previewReplacement(false, "");

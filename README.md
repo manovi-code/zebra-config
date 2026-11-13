@@ -52,7 +52,9 @@ Recent printers are remembered on this computer as an IP, a name, and a model. T
 
 **Network** includes the DHCP client ID (prefix, suffix, type, and on/off) for the wired port and for Wi-Fi, plus the DHCP host name (option 12). Those are network changes: the printer may get a different address. Confirm the extra warning before they are sent.
 
-**Replace a failed printer** saves a replacement file from the old printer (or uses a normal settings file you already have). On the new printer, load that file. The new name starts as the old name plus `_`, and you can edit it in the review. The old IP address is not copied unless you check that box, because two printers cannot share an address.
+**Replace a failed printer** saves a replacement file from the old printer, if it still responds. The new printer's name starts as that exact name, and you can edit it in the review. The tool then asks, in its own confirm screen, whether to rename the old printer to that name plus `_`. It does not rename anything without that confirm. If the file is an older saved export and the old printer is not connected, the rename is skipped and the page says so. The old IP address is not copied unless you check that box, because two printers cannot share an address.
+
+When the old printer's DHCP client ID is a text suffix and that ID is turned on, the same confirm offers to add `_` to the suffix, and that box starts checked. The guide uses the suffix only for text (`cid_type` 0) and hex (`cid_type` 2). `_` is not a hex character, and a MAC client ID (`cid_type` 1) does not send the suffix, so those two cases are explained and left unchanged.
 
 ## Run the simulator
 
