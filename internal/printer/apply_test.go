@@ -144,6 +144,10 @@ func TestDecide(t *testing.T) {
 	if unknown.Supported || !strings.Contains(unknown.Message, "resolution") {
 		t.Fatalf("%+v", unknown)
 	}
+	old := Decide("LP 2824 Plus", "", 8, "V1.0.0", "2824 Plus,V1.0.0,8,1024KB")
+	if old.Supported || !old.Readonly || !old.Source2824 || !strings.Contains(old.Message, "2824") {
+		t.Fatalf("%+v", old)
+	}
 }
 
 func TestParseHostReplies(t *testing.T) {

@@ -19,7 +19,7 @@ getvar replies are quoted and are not terminated. This program reads until the c
 
 | Screen label | Command | Allowed values in the guide | Notes |
 | --- | --- | --- | --- |
-| Model (read-only) | `device.product_name` | Printer-defined | Used with `~HI` to tell a ZD410/ZD411 from anything else. |
+| Model (read-only) | `device.product_name` | Printer-defined | Used with `~HI` to tell a ZD410/ZD411 from anything else. A product string or `~HI` model containing `2824` is a replacement source only. |
 | Firmware (read-only) | `appl.name` | Printer-defined | Guide: "the printer's firmware version." |
 | Resolution (read-only) | `head.resolution.in_dpi` | `"200"`, `"300"`, `"600"` | The guide does not list `203`. The ZD411 user guide calls the same head 203 dpi (8 dots/mm). This tool treats 200 and 203, and `~HI` dots/mm `8`, as the supported head. |
 | Friendly name | `device.friendly_name` | A short name. Guide default is the logic-board serial. | |
@@ -56,6 +56,10 @@ getvar replies are quoted and are not terminated. This program reads until the c
 | Send Wi-Fi DHCP host name | `ip.dhcp.option12` | `on`, `off`. Default `on`. | Wireless discovery packet. |
 | Wi-Fi DHCP host name | `ip.dhcp.option12_format` | A string | [ip.dhcp.option12_format](https://docs.zebra.com/us/en/printers/software/zpl-pg/r-sgd-wireless-sgd-wireless-commands/r-sgd-wireless-ip-dhcp-option12-format.html). |
 | Whole client ID | `internal_wired.ip.dhcp.cid_all` | Up to 60 text characters, or 120 hex | Not shown as its own field. The guide says setting it clears the prefix and puts the whole ID in the suffix. |
+| 2824 printer name | `device.friendly_name` | Often missing | [getvar](https://docs.zebra.com/us/en/printers/software/zpl-pg/r-sgd-sgd-printer-commands/c-sgd-overview/c-sgd-getvar-command.html) returns `?` when the setting does not exist. Zebra's friendly-name article excludes the 2824 series. A real answer is copied. `?` is listed as unreadable and the old printer is not renamed. |
+| 2824 client ID | `internal_wired.ip.dhcp.cid_*`, else `external_wired.ip.dhcp.cid_*`, else `ip.dhcp.cid_*` | Same values as the wired client ID | The 2824 Plus user guide's network option is the ZebraNet 10/100 internal print server. [external_wired.ip.dhcp.cid_prefix](https://docs.zebra.com/us/en/printers/software/zpl-pg/r-sgd-wireless-sgd-wireless-commands/r-sgd-wired-external-wired-ip-dhcp-cid-prefix.html) says SEH PS102-Z and PS105-Z accept getvar only, so an external suffix is read and mapped, not written. A readable `internal_wired` text suffix can be renamed after confirm. |
+| 2824 DHCP host name | `internal_wired.ip.dhcp.option12_format`, else `ip.dhcp.option12_format` | A string, or `<device.friendly_name>` | Option 12 is documented for `internal_wired`, `ip`, and `wlan`. It is not documented for `external_wired`, so that probe is expected to answer `?`. |
+| 2824 identity | `~HI` | `model,version,dots/mm,memory` | [~HI](https://docs.zebra.com/us/en/printers/software/zpl-pg/c-zpl-zpl-commands/r-zpl-hi.html). The 2824 Plus user guide says EPL and ZPL are both resident and that `~HS` / `~WC` work. The exact model token inside `~HI` was not printed in that guide. The simulator uses `LP 2824 Plus` and `V1.0.0`. |
 
 ## Actions
 

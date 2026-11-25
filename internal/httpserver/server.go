@@ -261,7 +261,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "not_connected", "Connect to a printer first.")
 		return
 	}
-	if s.sess.snap.Readonly {
+	if s.sess.snap.Readonly && !(s.sess.snap.Identity.Source2824 && catalog.LegacyWriteOK(s.sess.snap.Values, body.Changes)) {
 		writeErr(w, http.StatusConflict, "readonly", "This printer is read-only. Changes are turned off.")
 		return
 	}
@@ -429,9 +429,17 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		kind = "replacement"
 		filename = "zebra-config-replacement.json"
 	}
+	settings := cloneValues(s.sess.snap.Values)
+	var gaps []catalog.Gap
+	source := ""
+	if s.sess.snap.Identity.Source2824 && kind == "replacement" {
+		settings, gaps = catalog.Map2824(s.sess.snap.Values)
+		source = "2824"
+	}
 	doc := exportDoc{
 		ZebraConfig: 1,
 		Kind:        kind,
+		Source:      source,
 		ExportedAt:  time.Now().UTC().Format(time.RFC3339),
 		Tool:        "zebra-config " + printer.Version,
 		Printer: exportPrinter{
@@ -439,7 +447,8 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			Firmware:    s.sess.snap.Identity.Firmware,
 			DPI:         s.sess.snap.Identity.DPI,
 		},
-		Settings: cloneValues(s.sess.snap.Values),
+		Settings:   settings,
+		Unreadable: gaps,
 	}
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
@@ -488,10 +497,27 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	var changes []catalog.Change
 	var notes []string
 	suggested := ""
-	if body.Replacement || doc.Kind == "replacement" {
+	if body.Replacement || doc.Kind == "replacement" || doc.Source == "2824" {
 		var old string
 		changes, notes, old, suggested = catalog.ReplacementPlan(doc.Settings, body.NewName, body.IncludeStaticIP)
 		_ = old
+		if doc.Source == "2824" {
+			notes = append([]string{catalog.LegacyMediaNote}, notes...)
+			for _, gap := range doc.Unreadable {
+				notes = append(notes, "Could not read "+gap.Label+" from the 2824. Fill it in below if you know it.")
+			}
+			if !catalog.Answered(doc.Settings["device.friendly_name"]) && strings.TrimSpace(body.NewName) == "" {
+				suggested = ""
+				kept := make([]catalog.Change, 0, len(changes))
+				for _, ch := range changes {
+					if ch.ID == "device.friendly_name" {
+						continue
+					}
+					kept = append(kept, ch)
+				}
+				changes = kept
+			}
+		}
 	} else {
 		skippedNetwork := false
 		for id, value := range doc.Settings {
@@ -520,9 +546,11 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := reviewPayload(rows, notes)
 	payload["changes"] = changesFromRows(rows)
-	if body.Replacement || doc.Kind == "replacement" {
+	if body.Replacement || doc.Kind == "replacement" || doc.Source == "2824" {
 		payload["replacement"] = true
 		payload["suggestedName"] = suggested
+		payload["unreadable"] = doc.Unreadable
+		payload["source"] = doc.Source
 		if catalog.NeedsExtra(rows) {
 			payload["warning"] = replacementWarning(body.IncludeStaticIP)
 			payload["needsExtra"] = true
@@ -545,7 +573,7 @@ func (s *Server) handleOldRename(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "not_connected", "Connect to the old printer first.")
 		return
 	}
-	if s.sess.snap.Readonly {
+	if s.sess.snap.Readonly && !s.sess.snap.Identity.Source2824 {
 		writeErr(w, http.StatusConflict, "readonly", "This printer is read-only. Its name was not changed.")
 		return
 	}
@@ -556,7 +584,27 @@ func (s *Server) handleOldRename(w http.ResponseWriter, r *http.Request) {
 			include[id] = true
 		}
 	}
-	changes, notes, choices, retired := catalog.OldRenamePlan(s.sess.snap.Values, include)
+	var changes []catalog.Change
+	var notes []string
+	var choices []catalog.SuffixChoice
+	var retired string
+	if s.sess.snap.Identity.Source2824 {
+		var skip string
+		changes, notes, choices, retired, skip = catalog.LegacyRename(s.sess.snap.Values, include)
+		if skip != "" {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":         true,
+				"skipped":    true,
+				"message":    skip,
+				"rows":       []catalog.Row{},
+				"notes":      []string{},
+				"unreadable": s.sess.snap.Identity.Unreadable,
+			})
+			return
+		}
+	} else {
+		changes, notes, choices, retired = catalog.OldRenamePlan(s.sess.snap.Values, include)
+	}
 	rows, err := catalog.Diff(s.sess.snap.Values, changes)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_value", err.Error())
@@ -655,10 +703,12 @@ type exportPrinter struct {
 type exportDoc struct {
 	ZebraConfig int               `json:"zebraConfig"`
 	Kind        string            `json:"kind,omitempty"`
+	Source      string            `json:"source,omitempty"`
 	ExportedAt  string            `json:"exportedAt"`
 	Tool        string            `json:"tool"`
 	Printer     exportPrinter     `json:"printer"`
 	Settings    map[string]string `json:"settings"`
+	Unreadable  []catalog.Gap     `json:"unreadable,omitempty"`
 }
 
 func parseExport(raw json.RawMessage) (exportDoc, error) {
