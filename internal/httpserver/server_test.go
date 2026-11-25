@@ -442,6 +442,115 @@ func TestReplacementImportAndAlwaysOn(t *testing.T) {
 	}
 }
 
+func Test2824ReplacementSource(t *testing.T) {
+	gaps, err := sim.Listen("127.0.0.1:0", sim.Options{Model: "LP 2824 Plus", DPI: 203})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = gaps.Close() })
+	writable, err := sim.Listen("127.0.0.1:0", sim.Options{Model: "LP 2824 Plus", DPI: 203, AllowSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writable.Close() })
+	target, err := sim.Listen("127.0.0.1:0", sim.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = target.Close() })
+	base := startUI(t, printer.Timeouts{})
+
+	status, conn := postJSON(t, base+"/api/connect", map[string]any{"ip": "127.0.0.1", "port": gaps.Port()})
+	if status != 200 || conn["ok"] != true {
+		t.Fatalf("connect gaps %d %+v", status, conn)
+	}
+	snap := conn["snapshot"].(map[string]any)
+	identity := snap["identity"].(map[string]any)
+	if identity["source2824"] != true || snap["readonly"] != true {
+		t.Fatalf("identity %+v", identity)
+	}
+	unread := identity["unreadable"].([]any)
+	labels := map[string]bool{}
+	for _, raw := range unread {
+		labels[raw.(map[string]any)["label"].(string)] = true
+	}
+	if !labels["Printer name"] || !labels["DHCP client ID prefix"] || !labels["DHCP host name"] {
+		t.Fatalf("unreadable %+v", unread)
+	}
+	res, err := http.Get(base + "/api/export?replacement=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["source"] != "2824" || doc["kind"] != "replacement" {
+		t.Fatalf("export %+v", doc)
+	}
+	settings := doc["settings"].(map[string]any)
+	if _, ok := settings["print.tone"]; ok {
+		t.Fatal("2824 export copied darkness")
+	}
+	if settings["internal_wired.ip.dhcp.cid_suffix"] != "2824" {
+		t.Fatalf("mapped suffix %+v", settings)
+	}
+	status, skipped := postJSON(t, base+"/api/old-rename", map[string]any{})
+	if status != 200 || skipped["skipped"] != true || !strings.Contains(skipped["message"].(string), "not renamed") {
+		t.Fatalf("skip %d %+v", status, skipped)
+	}
+	status, denied := postJSON(t, base+"/api/apply", map[string]any{
+		"changes": []map[string]string{{"id": "print.tone", "value": "12"}},
+		"confirm": true,
+	})
+	if status != 200 || denied["code"] != "readonly" {
+		t.Fatalf("tone write %d %+v", status, denied)
+	}
+
+	status, conn = postJSON(t, base+"/api/connect", map[string]any{"ip": "127.0.0.1", "port": writable.Port()})
+	if status != 200 || conn["ok"] != true {
+		t.Fatalf("connect writable %d %+v", status, conn)
+	}
+	status, rename := postJSON(t, base+"/api/old-rename", map[string]any{})
+	if status != 200 || rename["ok"] != true || rename["skipped"] == true || rename["retiredName"] != "PRN-LAB2_" {
+		t.Fatalf("rename %d %+v", status, rename)
+	}
+	status, applied := postJSON(t, base+"/api/apply", map[string]any{
+		"changes": rename["changes"], "confirm": true, "extraConfirm": true,
+	})
+	if status != 200 || writable.Get("device.friendly_name") != "PRN-LAB2_" || writable.Get("internal_wired.ip.dhcp.cid_suffix") != "2824_" {
+		t.Fatalf("apply rename %d name %s suffix %s %+v", status, writable.Get("device.friendly_name"), writable.Get("internal_wired.ip.dhcp.cid_suffix"), applied)
+	}
+
+	status, _ = postJSON(t, base+"/api/connect", map[string]any{"ip": "127.0.0.1", "port": target.Port()})
+	if status != 200 {
+		t.Fatalf("target connect %d", status)
+	}
+	status, imported := postJSON(t, base+"/api/import", map[string]any{"document": doc, "replacement": true})
+	if status != 200 || imported["ok"] != true || imported["suggestedName"] != "" {
+		t.Fatalf("import gaps %d %+v", status, imported)
+	}
+	if !strings.Contains(strings.Join(stringNotes(imported["notes"]), " "), "darkness") {
+		t.Fatalf("notes %+v", imported["notes"])
+	}
+	for _, raw := range imported["rows"].([]any) {
+		row := raw.(map[string]any)
+		if row["id"] == "print.tone" || row["id"] == "device.friendly_name" {
+			t.Fatalf("unexpected row %+v", row)
+		}
+	}
+}
+
+func stringNotes(raw any) []string {
+	var out []string
+	for _, item := range raw.([]any) {
+		out = append(out, item.(string))
+	}
+	return out
+}
+
 func sectionNames(snap map[string]any) map[string]bool {
 	out := map[string]bool{}
 	for _, raw := range snap["sections"].([]any) {

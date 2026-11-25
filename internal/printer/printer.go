@@ -28,16 +28,18 @@ var identityNames = []string{
 
 // Identity is what the printer reported about itself, plus the support decision.
 type Identity struct {
-	ProductName string `json:"productName"`
-	Firmware    string `json:"firmware"`
-	DPI         int    `json:"dpi"`
-	DPIRaw      string `json:"dpiRaw"`
-	DotsPerMM   int    `json:"dotsPerMM"`
-	HostID      string `json:"hostId"`
-	Status      string `json:"status"`
-	Supported   bool   `json:"supported"`
-	Readonly    bool   `json:"readonly"`
-	Message     string `json:"message"`
+	ProductName string        `json:"productName"`
+	Firmware    string        `json:"firmware"`
+	DPI         int           `json:"dpi"`
+	DPIRaw      string        `json:"dpiRaw"`
+	DotsPerMM   int           `json:"dotsPerMM"`
+	HostID      string        `json:"hostId"`
+	Status      string        `json:"status"`
+	Supported   bool          `json:"supported"`
+	Readonly    bool          `json:"readonly"`
+	Source2824  bool          `json:"source2824"`
+	Message     string        `json:"message"`
+	Unreadable  []catalog.Gap `json:"unreadable,omitempty"`
 }
 
 // Snapshot is the screen's picture of one connected printer.
@@ -132,6 +134,16 @@ func Read(c *sgd.Client, connectedTo string, t Timeouts) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("%w", ErrBadResponse)
 	}
 	id := Decide(product, dpiRaw, dpm, firmware, hostPretty)
+	if id.Source2824 {
+		extra, err := c.GetMany(catalog.LegacyProbeIDs())
+		if err != nil {
+			return Snapshot{}, err
+		}
+		for i, name := range catalog.LegacyProbeIDs() {
+			got[name] = extra[i]
+		}
+		_, id.Unreadable = catalog.Map2824(got)
+	}
 	status := "No status reply. The printer stays quiet when it is out of paper, out of ribbon, or the head is open."
 	prev := c.ReadTimeout()
 	if t.Status > 0 {
@@ -148,6 +160,11 @@ func Read(c *sgd.Client, connectedTo string, t Timeouts) (Snapshot, error) {
 	values := map[string]string{}
 	for _, name := range catalog.IDs() {
 		values[name] = got[name]
+	}
+	if id.Source2824 {
+		for _, name := range catalog.LegacyProbeIDs() {
+			values[name] = got[name]
+		}
 	}
 	snap := Snapshot{
 		Identity:    id,
@@ -444,7 +461,11 @@ func Decide(product, dpiRaw string, dpm int, firmware, hostID string) Identity {
 	family := familyOf(id.ProductName)
 	dpi, dpiKnown := dpiOf(id.DPIRaw, dpm)
 	id.DPI = dpi
+	id.Source2824 = is2824(id.ProductName) || is2824(hostID)
 	switch {
+	case id.Source2824:
+		id.Readonly = true
+		id.Message = "This is a 2824. Settings stay read-only. You can save a replacement file for a ZD410 or ZD411. Anything this printer does not report is listed under Replace a failed printer."
 	case family == "":
 		id.Readonly = true
 		id.Message = fmt.Sprintf("This printer reports as %s. Zebra Config only changes settings on a ZD410 or ZD411 at 203 dpi. You can look, but changes are turned off.", orUnknown(id.ProductName))
@@ -458,6 +479,10 @@ func Decide(product, dpiRaw string, dpm int, firmware, hostID string) Identity {
 		id.Supported = true
 	}
 	return id
+}
+
+func is2824(product string) bool {
+	return strings.Contains(strings.ToUpper(product), "2824")
 }
 
 func familyOf(product string) string {

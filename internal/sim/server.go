@@ -29,6 +29,9 @@ type Options struct {
 	Hang bool
 	// Firmware is the appl.name / ~HI version string.
 	Firmware string
+	// AllowSet lets a 2824 accept setvar. Without it, reads still work and
+	// setvar is ignored, which matches a 2824 whose SGD write path is missing.
+	AllowSet bool
 }
 
 // Server is a started simulator.
@@ -47,6 +50,7 @@ type state struct {
 	saved    map[string]string
 	factory  map[string]string
 	reject   map[string]bool
+	allowSet bool
 	model    string
 	dpi      int
 	dpm      int
@@ -65,6 +69,9 @@ func Listen(addr string, opt Options) (*Server, error) {
 	}
 	if opt.Firmware == "" {
 		opt.Firmware = "V84.20.20Z"
+	}
+	if strings.Contains(strings.ToUpper(opt.Model), "2824") && opt.Firmware == "V84.20.20Z" {
+		opt.Firmware = "V1.0.0"
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -270,6 +277,9 @@ func newState(opt Options) *state {
 	current["wlan.ip.dhcp.cid_type"] = "0"
 	current["wlan.ip.dhcp.cid_prefix"] = "LAB"
 	current["wlan.ip.dhcp.cid_suffix"] = "WIFI"
+	if strings.Contains(strings.ToUpper(opt.Model), "2824") {
+		return newLegacyState(opt, dpm)
+	}
 	if opt.Model != "ZD411" && opt.Model != "ZD410" {
 		current["device.friendly_name"] = opt.Model
 	}
@@ -277,6 +287,38 @@ func newState(opt Options) *state {
 		values:   current,
 		saved:    copyMap(current),
 		factory:  factory,
+		allowSet: true,
+		model:    opt.Model,
+		dpi:      opt.DPI,
+		dpm:      dpm,
+		firmware: opt.Firmware,
+	}
+}
+
+// newLegacyState is an LP/TLP 2824 Plus with an optional ZebraNet print server.
+// The default answers "?" for the printer name, the internal wired client ID,
+// and option 12. The external print server answers a partial client ID.
+// AllowSet fills in a writable internal client ID and a real friendly name.
+func newLegacyState(opt Options, dpm int) *state {
+	values := map[string]string{
+		"external_wired.ip.dhcp.cid_enable": "on",
+		"external_wired.ip.dhcp.cid_type":   "0",
+		"external_wired.ip.dhcp.cid_suffix": "2824",
+	}
+	allow := opt.AllowSet
+	if allow {
+		values["device.friendly_name"] = "PRN-LAB2"
+		values["internal_wired.ip.dhcp.cid_enable"] = "on"
+		values["internal_wired.ip.dhcp.cid_type"] = "0"
+		values["internal_wired.ip.dhcp.cid_prefix"] = "LAB"
+		values["internal_wired.ip.dhcp.cid_suffix"] = "2824"
+		values["internal_wired.ip.dhcp.option12_format"] = "<device.friendly_name>"
+	}
+	return &state{
+		values:   values,
+		saved:    copyMap(values),
+		factory:  copyMap(values),
+		allowSet: allow,
 		model:    opt.Model,
 		dpi:      opt.DPI,
 		dpm:      dpm,
@@ -318,7 +360,7 @@ func (s *state) set(name, value string) (closeConn bool) {
 		s.restoreBranch(value)
 		return false
 	}
-	if s.reject[name] {
+	if s.reject[name] || !s.allowSet {
 		return false
 	}
 	switch name {

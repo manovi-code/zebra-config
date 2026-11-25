@@ -54,6 +54,8 @@ Recent printers are remembered on this computer as an IP, a name, and a model. T
 
 **Replace a failed printer** saves a replacement file from the old printer, if it still responds. The new printer's name starts as that exact name, and you can edit it in the review. The tool then asks, in its own confirm screen, whether to rename the old printer to that name plus `_`. It does not rename anything without that confirm. If the file is an older saved export and the old printer is not connected, the rename is skipped and the page says so. The old IP address is not copied unless you check that box, because two printers cannot share an address.
 
+A **2824** (LP 2824 Plus, TLP 2824 Plus, and other models whose name contains 2824) can be the old printer. It stays read-only for ordinary settings. Save replacement file still works, because that only reads. The file keeps the name, DHCP client ID, and DHCP host name when the printer answers them. Media, darkness, speed, and label size are not copied: a 2824 Plus is 203 dpi, but its top speed is 4 inches per second and its darkness scale is not the ZD410/ZD411 scale. Fields that answer `?` are listed on the page so they can be typed in on the new printer. The old 2824 is renamed only when it actually reports `device.friendly_name` or an internal-print-server client ID suffix. Otherwise the page says it was not renamed. An external print server's client ID is read, not written.
+
 When the old printer's DHCP client ID is a text suffix and that ID is turned on, the same confirm offers to add `_` to the suffix, and that box starts checked. The guide uses the suffix only for text (`cid_type` 0) and hex (`cid_type` 2). `_` is not a hex character, and a MAC client ID (`cid_type` 1) does not send the suffix, so those two cases are explained and left unchanged.
 
 ## Run the simulator
@@ -121,6 +123,9 @@ This version was checked against the simulator and against Zebra's published gui
 - `power.sleep.enable` and `power.sleep.timeout` are documented for mobile printers. They are not in the desktop SGD command index, so this tool does not send them. ZD410/ZD411 sleep is sent as `power.energy_star.enable` and `power.energy_star.timeout`. Whether a particular ZD410 firmware also honors `power.sleep.*` was not checked.
 - `ip.dhcp.cid_*` exists as well as `wlan.ip.dhcp.cid_*`. This tool writes the `wlan.ip.dhcp.cid_*` names from the wireless pages, not both.
 - DHCP option 12 on Wi-Fi is `ip.dhcp.option12`. The wired names are `internal_wired.ip.dhcp.option12`, `option12_format`, and read-only `option12_value`. A ZD410 without Wi-Fi may answer `?` for the Wi-Fi names.
+- A real 2824 has not been connected. The exact `~HI` model token, which SGD names a ZebraNet 10/100 internal server answers, and whether `device.friendly_name` is ever present are unverified. An EPL-only 2824 may not answer SGD or `~HI` at all.
+- Whether a 2824's internal print server uses `internal_wired.ip.dhcp.cid_*` or only `ip.dhcp.cid_*` / `external_wired.ip.dhcp.cid_*` was not checked on hardware. This tool reads all three and copies the first one that answers.
+- `setvar` of a client ID suffix on a 2824 print server may be ignored. The tool only offers that write for `internal_wired`, and it reports the value if the printer does not keep it.
 
 ## Build from source
 

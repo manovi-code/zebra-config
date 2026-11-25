@@ -185,11 +185,29 @@ function renderSession(snap) {
     btn.disabled = lock;
   });
   $("console-send").disabled = false;
-  for (const id of ["replacement-export", "replacement-file", "replacement-force"]) {
-    const el = $(id);
-    if (el) el.disabled = lock;
-  }
+  const legacy = !!(snap.identity && snap.identity.source2824);
+  $("replacement-export").disabled = lock && !legacy;
+  $("replacement-file").disabled = lock;
+  $("replacement-force").disabled = lock;
+  renderUnreadable(snap.identity && snap.identity.unreadable);
   updatePowerStatus();
+}
+
+function renderUnreadable(items) {
+  const box = $("unreadable-box");
+  const list = $("unreadable-list");
+  if (!box || !list) return;
+  list.replaceChildren();
+  if (!items || !items.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item.label;
+    list.appendChild(li);
+  }
 }
 
 function updatePowerStatus() {
@@ -235,6 +253,21 @@ function openModal(opts) {
     const p = document.createElement("p");
     p.textContent = opts.message;
     body.appendChild(p);
+  }
+  if (opts.fillIns && opts.fillIns.length) {
+    for (const gap of opts.fillIns) {
+      if (!gap.target || gap.target === "device.friendly_name") continue;
+      const label = document.createElement("label");
+      label.className = "field";
+      const span = document.createElement("span");
+      span.textContent = gap.label + " (the 2824 did not report this)";
+      const input = document.createElement("input");
+      input.dataset.fill = gap.target;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      label.append(span, input);
+      body.appendChild(label);
+    }
   }
   if (opts.suffixChoices && opts.suffixChoices.length) {
     for (const choice of opts.suffixChoices) {
@@ -525,6 +558,10 @@ async function openOldRename(suffixes) {
     showBanner("error", (res.body.error || "The old printer was not renamed.") + " The replacement file is already saved.");
     return;
   }
+  if (res.body.skipped) {
+    showBanner("warn", res.body.message || "The old printer was not renamed.");
+    return;
+  }
   if (!res.body.rows || res.body.rows.length === 0) {
     showBanner("ok", "Saved a replacement file. This printer did not need a rename.");
     return;
@@ -585,20 +622,27 @@ async function previewReplacement(includeStatic, name) {
     offerSave: true,
     replacement: true,
     nameField: name || res.body.suggestedName || "",
+    fillIns: res.body.unreadable || [],
     includeStaticIP: !!includeStatic,
     reload: (checked, edited) => previewReplacement(checked, edited),
     send: async ({ extraConfirm, save }) => {
-      const edited = ($("replacement-name") && $("replacement-name").value.trim()) || res.body.suggestedName;
-      const changes = (res.body.changes || []).map((change) => {
-        if (change.id === "device.friendly_name") return { id: change.id, value: edited };
-        if (String(change.id).indexOf("option12_format") >= 0 && change.value === res.body.suggestedName) {
+      const edited = ($("replacement-name") && $("replacement-name").value.trim()) || "";
+      let changes = (res.body.changes || []).map((change) => {
+        if (change.id === "device.friendly_name" && edited) return { id: change.id, value: edited };
+        if (edited && String(change.id).indexOf("option12_format") >= 0 && change.value === res.body.suggestedName) {
           return { id: change.id, value: edited };
         }
         return change;
-      });
-      if (!changes.some((change) => change.id === "device.friendly_name")) {
+      }).filter((change) => change.id !== "device.friendly_name" || edited);
+      if (edited && !changes.some((change) => change.id === "device.friendly_name")) {
         changes.push({ id: "device.friendly_name", value: edited });
       }
+      document.querySelectorAll("[data-fill]").forEach((el) => {
+        const value = el.value.trim();
+        if (!value) return;
+        changes = changes.filter((change) => change.id !== el.dataset.fill);
+        changes.push({ id: el.dataset.fill, value: value });
+      });
       return jsonPost("/api/apply", { changes, confirm: true, extraConfirm, save });
     },
   });

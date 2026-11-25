@@ -66,7 +66,7 @@
     <section class="card" id="replace-card" aria-labelledby="replace-heading">
       <h2 id="replace-heading">Replace a failed printer</h2>
       <ol class="steps">
-        <li>On the old printer, if it still responds, click <strong>Save replacement file</strong>. The next screen asks before renaming that printer to its name plus _.</li>
+        <li>On the old printer, if it still responds, click <strong>Save replacement file</strong>. A 2824 works here too. The next screen asks before renaming it, and skips the rename when the printer cannot report a name.</li>
         <li>Connect to the new printer and load that file. Its name starts as the old name, and you can change it before anything is sent.</li>
       </ol>
       <div class="button-row">
@@ -80,7 +80,11 @@
         <input id="replacement-force" type="checkbox">
         <span>This file is a normal settings export from the old printer</span>
       </label>
-      <p class="help" id="replace-note">A replacement file copies the settings and the DHCP client ID. The old IP address is left out unless you check that box in the review, because two printers cannot share an address. If you only have a saved file and the old printer is off, check the box below and load that file. This tool will not rename a printer it is not connected to.</p>
+      <div id="unreadable-box" hidden>
+        <p class="warn-text" id="unreadable-heading">Could not read these from the old printer. Fill them in when you load the file onto the new printer.</p>
+        <ul id="unreadable-list"></ul>
+      </div>
+      <p class="help" id="replace-note">A replacement file copies the name and the DHCP client ID. Media, darkness, and speed are not copied from a 2824. The old IP address is left out unless you check that box in the review, because two printers cannot share an address. If you only have a saved file and the old printer is off, check the box below and load that file. This tool will not rename a printer it is not connected to.</p>
     </section>
 
     <div id="sections" class="sections"></div>

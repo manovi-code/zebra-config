@@ -13,8 +13,9 @@ import (
 
 func main() {
 	port := flag.Int("port", 9100, "TCP port (the printer default is 9100; use 9101 if 9100 is taken)")
-	model := flag.String("model", "ZD411", "model to report, for example ZD411, ZD410, or ZD621")
+	model := flag.String("model", "ZD411", "model to report, for example ZD411, ZD410, ZD621, or \"LP 2824 Plus\"")
 	dpi := flag.Int("dpi", 203, "resolution to report, for example 203 or 300")
+	allowSet := flag.Bool("allow-set", false, "on a 2824, accept setvar for the name and internal client ID")
 	delay := flag.Duration("delay", 0, "wait this long before each reply, for example 5s")
 	hang := flag.Bool("hang", false, "accept the connection and never answer (timeout)")
 	refuse := flag.Bool("refuse", false, "do not listen, so the connection is refused")
@@ -26,10 +27,11 @@ func main() {
 		select {}
 	}
 	srv, err := sim.Listen(fmt.Sprintf("127.0.0.1:%d", *port), sim.Options{
-		Model: *model,
-		DPI:   *dpi,
-		Delay: *delay,
-		Hang:  *hang,
+		Model:    *model,
+		DPI:      *dpi,
+		Delay:    *delay,
+		Hang:     *hang,
+		AllowSet: *allowSet,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Could not listen:", err)
@@ -37,6 +39,9 @@ func main() {
 	}
 	defer srv.Close()
 	fmt.Printf("Pretend %s at %d dpi on %s\n", *model, *dpi, srv.Addr())
+	if *allowSet {
+		fmt.Println("setvar is accepted.")
+	}
 	if *hang {
 		fmt.Println("Hang mode: connections are accepted and no reply is sent.")
 	}
